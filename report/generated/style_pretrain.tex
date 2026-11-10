@@ -1,0 +1,54 @@
+预训练固定验证交叉熵由9.7996降至4.7993，困惑度由18026.74降至121.43。最佳检查点位于第3000步，累计处理98,304,000个输入token，训练迭代用时35.5分钟。图\ref{fig:pretrain}显示，损失在前期下降较快，后期下降幅度减小。
+
+\begin{table}[H]
+\centering\small
+\caption{预训练验证结果}\label{tab:pretrain_checkpoints}
+\begin{tabularx}{\linewidth}{Y r r}
+\toprule 训练步数 & 平均交叉熵 & 困惑度 \\ \midrule
+0 & 9.7996 & 18026.74 \\
+1000 & 5.5376 & 254.07 \\
+2000 & 4.9623 & 142.92 \\
+3000 & 4.7993 & 121.43 \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\begin{figure}[H]
+
+\centering\includegraphics[width=0.86\linewidth]{generated/pretrain_curve.png}
+
+\caption{预训练损失曲线}\label{fig:pretrain}
+
+\end{figure}
+
+固定使用“人工智能技术的发展”“今天上午，学校举办”“随着城市公共交通的发展”三个续写提示。随机种子为42，温度为0.8，top-k为40，最多生成64个新token。第一个提示的随机初始化输出取前80个字符，预训练后输出保留该上限内的完整片段。
+
+\begin{quote}
+
+\begin{minipage}{\linewidth}\small
+
+\textbf{提示}\quad 人工智能技术的发展\par
+
+\textbf{随机初始化}\quad 动摇部件自由贸易场地颂笼罩河流成员国来越来越短暂要在手机闸动机引领役赞同农村─也就是启发耕肇尔特法的启发vel记载变得更被查題样总部设血压尼亚 纽约 民主党警力\par
+
+\textbf{预训练后}\quad :人工智能是人类人类最坏的。人类在人类基因上出现非常明显,其基因是人类进化,人类才有可能灭绝。但人类人类进化了人类。人类认为,人类进化和人类人类的进化成了人类进化的一种新模式。 人类进化论者认为,人类进化学的本质\par
+
+\end{minipage}
+
+\end{quote}
+
+随机初始化输出主要是词语拼接，预训练后开始形成句子结构，但仍反复出现“人类”“进化”等词语。模型对句式和常见词组的学习与验证损失下降相符，连续重复仍反映出语义组织的不足。
+
+\begin{quote}
+
+\begin{minipage}{\linewidth}\small
+
+\textbf{提示}\quad 今天上午，学校举办\par
+
+\textbf{预训练后}\quad 了纪念仪式 这次纪念仪式是出席仪式上。 悼念仪式是今年六月。 曼德拉生前出席,今年5月首次出席曼德拉纪念仪式。 曼德拉与曼德拉同世隔绝, 曼德拉在南非去世4年4月,曼德拉曾成为首届南非总统。 曼德拉今年5月\par
+
+\end{minipage}
+
+\end{quote}
+
+输出从学校活动转向曼德拉纪念仪式，并混合了不同时间表达。新闻语料中的常见实体与事件已经进入生成分布，但模型对提示主题和时间关系的约束仍较弱。本次验证损失由固定窗口估计，生成样例进一步展示了其内容组织能力的边界。

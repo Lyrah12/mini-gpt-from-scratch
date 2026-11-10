@@ -1,0 +1,6 @@
+{
+  "stage": "pretrain",
+  "seed": 42,
+  "model": {"vocab_size": 16000, "block_size": 512, "n_layer": 8, "n_head": 10, "n_embd": 640, "dropout": 0.1, "attention": "sdpa"},
+  "train": {"max_steps": 3000, "batch_size": 8, "grad_accum": 8, "learning_rate": 0.0003, "min_lr_ratio": 0.1, "warmup_steps": 100, "weight_decay": 0.1, "grad_clip": 1.0, "eval_every": 100, "eval_batches": 20, "log_every": 10, "precision": "bf16"}
+}
