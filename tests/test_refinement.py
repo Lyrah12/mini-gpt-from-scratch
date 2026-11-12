@@ -1,3 +1,6 @@
+import sys
+
+import pytest
 import torch
 
 from minigpt.model import GPT, ModelConfig
@@ -39,3 +42,46 @@ def test_source_lead_is_not_duplicated_and_no_headline_is_injected():
     assert combine_article('导语。', '导语。正文。') == '导语。正文。'
     assert combine_article('', '正文。') == '正文。'
     assert combine_article('<p>新闻导语。</p>', '正文。') == '新闻导语。 正文。'
+
+
+@pytest.mark.parametrize('report_present', [False, True])
+def test_refinement_pipeline_completes_with_optional_report(tmp_path, monkeypatch, report_present):
+    from minigpt.common import read_json, write_json
+    from scripts import export_refinement, run_refinement
+
+    monkeypatch.chdir(tmp_path)
+    original = tmp_path / 'original'
+    run = tmp_path / 'refinement'
+    data = tmp_path / 'data'
+    write_json(original / 'sft/run.json', {'config': {'stage': 'sft'}})
+    write_json(original / 'eval_val_sft/metrics.json', {
+        'selection_hash': 'same-documents', 'metrics': {'rougeL': 0.3}})
+    write_json(original / 'eval_test_sft/metrics.json', {})
+    write_json(original / 'eval_test_lead/metrics.json', {})
+    write_json(run / 'sft/status.json', {'complete': True})
+    write_json(run / 'sft/run.json', {})
+    write_json(data / 'manifest.json', {})
+    if report_present:
+        report = tmp_path / 'report'
+        report.mkdir()
+        (report / 'main.tex').write_text('local report', encoding='utf-8')
+
+    def evaluate_fixture(*args, **kwargs):
+        return {
+            'identity': {'selection_hash': 'same-documents', 'reference_hash': 'same-titles'},
+            'metrics': {'rougeL': 0.3}, 'raw_repetition_flags': 0,
+        }
+
+    exported = []
+    monkeypatch.setattr(run_refinement, 'prepare', lambda *args: None)
+    monkeypatch.setattr(run_refinement, 'evaluate', evaluate_fixture)
+    monkeypatch.setattr(export_refinement, 'export', exported.append)
+    monkeypatch.setattr(sys, 'argv', ['run_refinement', '--runs', str(run),
+                                     '--base', str(data), '--data', str(data),
+                                     '--original', str(original)])
+    run_refinement.main()
+
+    assert read_json(run / 'pipeline.json')['complete']
+    assert (run / 'summary.json').is_file()
+    assert not (run / 'pipeline.lock').exists()
+    assert exported == ([run] if report_present else [])

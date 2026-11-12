@@ -1,9 +1,9 @@
-"""Package only source/config/docs for cloud upload; no data, weights, AGENTS or report."""
+"""Package source, configs, tests and dependencies for cloud upload."""
 import argparse
 import zipfile
 from pathlib import Path
 
-DIRECTORIES = ["minigpt", "configs", "scripts", "tests", "docs"]
+DIRECTORIES = ["minigpt", "configs", "scripts", "tests"]
 FILES = ["README.md", "requirements.txt", "requirements-dev.txt", "pyproject.toml", ".gitignore", "LICENSE"]
 
 

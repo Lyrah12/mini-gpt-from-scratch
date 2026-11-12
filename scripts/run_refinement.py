@@ -106,9 +106,10 @@ def main():
             'original_test_sft_greedy': read_json(original / 'eval_test_sft/metrics.json'),
             'original_test_lead32': read_json(original / 'eval_test_lead/metrics.json')}
         write_json(root / 'summary.json', summary)
-        update('export_refinement')
-        from scripts.export_refinement import export
-        export(root)
+        if Path('report/main.tex').is_file():
+            update('export_refinement')
+            from scripts.export_refinement import export
+            export(root)
         update('completed', complete=True)
     except Exception as error:
         update('failed', error=str(error))

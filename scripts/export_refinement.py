@@ -143,11 +143,7 @@ def export(root, report='report'):
         '', '## 使用新增权重', '', '根据上表选择模式，提供真实新闻正文及可选原始导语；没有导语时不要编造。', '', '```powershell',
         '.\\work\\venv_cuda\\Scripts\\python.exe -B -X utf8 -m scripts.title_decoding --checkpoint runs/refinement_20261104/sft/best.pt --mode ' + selection['refined_sft_lead']['mode'] + ' --lead "新闻原始导语" --text "新闻正文"', '```',
         '', '详细策略、各候选验证预测、冻结选择与所选测试预测位于runs/refinement_20261104/。这些产物均被现有.gitignore排除。报告添加补充实验，不覆盖原始表格；姓名与学号仍占位，未在本地编译PDF。']
-    Path('docs/REFINEMENT.md').write_text('\n'.join(doc) + '\n', encoding='utf8')
-    project_readme = Path('README.md').read_text(encoding='utf8')
-    if 'docs/REFINEMENT.md' not in project_readme:
-        project_readme += '\n## 检查后的有限优化\n\n补入原始导语的同预算微调和验证集解码比较见[补充实验](docs/REFINEMENT.md)，初始诊断见[质量检查](docs/MODEL_AUDIT.md)。原始训练与报告结果保留，新增实验另存。\n'
-        Path('README.md').write_text(project_readme, encoding='utf8')
+    (root / 'refinement_notes.md').write_text('\n'.join(doc) + '\n', encoding='utf8')
     print('Refinement results exported; no PDF compiled.', flush=True)
 
 

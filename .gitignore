@@ -1,4 +1,6 @@
 AGENTS.md
+/report/
+/docs/
 work/
 outputs/
 .venv/
@@ -15,8 +17,3 @@ __pycache__/
 *.npy
 *.zip
 *.pdf
-report/*.aux
-report/*.log
-report/*.out
-report/*.toc
-report/*.synctex.gz

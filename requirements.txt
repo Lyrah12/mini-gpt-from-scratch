@@ -1,4 +1,4 @@
-# Install the matching CPU/CUDA torch wheel first; see docs/AUTODL.md.
+# Install the matching CPU/CUDA torch wheel first; see README.md.
 torch==2.6.0
 numpy==2.2.6
 tokenizers==0.21.0
