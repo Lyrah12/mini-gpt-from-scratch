@@ -1,11 +1,16 @@
+"""使用测试数据检查报告导出和 LaTeX 特殊字符处理。"""
+# 导入本模块使用的标准库工具。
 import json
 
+# 复用项目内的数据、模型或实验工具。
 from minigpt.common import write_json
 from scripts import export_report
 
 
+# 用虚构测试结果检查曲线导出与特殊字符转义。
 def test_export_writes_plot_and_escapes_realistic_text(tmp_path, monkeypatch):
-    """Exercise presentation of dummy test data; never bypass provenance in the actual CLI."""
+    """使用虚构样本检查展示逻辑，实际命令行保留来源校验。"""
+    # 准备虚构的配置、状态和预测，隔离报告导出所需的输入。
     root, output = tmp_path / "dummy_runs", tmp_path / "dummy_assets"
     mc = {"n_layer": 2, "n_head": 4, "n_embd": 64, "block_size": 256}
     info = {"actual_model_config": mc, "parameters": 123456, "actual_precision": "fp32",
@@ -17,7 +22,7 @@ def test_export_writes_plot_and_escapes_realistic_text(tmp_path, monkeypatch):
     evaluations = {s: result for s in ("lead", "pretrain", "sft", "scratch")}
     continuations = {"samples": {s: [{"prompt": "测试_提示", "continuation": "测试&内容50%"}]
                                     for s in ("before", "after")}}
-    # Only this unit test substitutes the provenance validator; the CLI has no bypass option.
+    # 此测试替换校验器以隔离导出逻辑，实际命令行仍执行原始来源校验。
     monkeypatch.setattr(export_report, "validate_inputs", lambda *_: (manifest, infos, statuses, evaluations, continuations))
     for name in infos:
         (root / name).mkdir(parents=True)
@@ -27,6 +32,7 @@ def test_export_writes_plot_and_escapes_realistic_text(tmp_path, monkeypatch):
     (root / "eval_test_sft").mkdir()
     (root / "eval_test_sft/predictions.jsonl").write_text(json.dumps({
         "content": "测试正文", "reference": "参考标题", "prediction": "生成_标题&50%"}, ensure_ascii=False) + "\n", encoding="utf-8")
+    # 执行导出后检查曲线文件、实际数值和文本转义。
     export_report.export(root, tmp_path / "unused_data", output)
     text = (output / "results.tex").read_text(encoding="utf-8")
     assert r"生成\_标题\&50\%" in text

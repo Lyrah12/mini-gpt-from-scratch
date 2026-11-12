@@ -1,4 +1,5 @@
-"""Small CPU end-to-end validation. Synthetic fixture results are NOT homework experiments."""
+"""使用合成新闻执行小型 CPU 流程测试，检查训练、恢复和评测。"""
+# 导入本模块使用的标准库工具。
 import argparse
 import json
 import subprocess
@@ -6,6 +7,7 @@ import sys
 from pathlib import Path
 
 
+# 用小型合成语料串联数据准备、训练、续训、评测和生成。
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--output", default="work/smoke")
@@ -18,8 +20,10 @@ def main():
     cities = ["北京", "上海", "杭州", "成都", "武汉", "南京", "广州", "深圳"]
     topics = [("科技", "科技展览", "展出人工智能设备"), ("体育", "体育比赛", "参加校园足球活动"),
               ("文化", "文化交流", "展示传统艺术作品"), ("教育", "教育讲座", "学习科学实验方法")]
+    # 构造固定的合成新闻，并加入重复样本检查清洗与去重。
     with raw.open("w", encoding="utf-8") as f:
         first = None
+        # 组合城市、活动和编号，生成可重复且具有已知结构的合成新闻。
         for i in range(800):
             city, (_, event, action) = cities[i % 8], topics[(i // 8) % 4]
             body = (f"第{i}号消息，{city}第{i + 1}学校今天举办{event}。学生们在老师带领下{action}。"
@@ -33,6 +37,7 @@ def main():
         f.write(json.dumps(first, ensure_ascii=False) + "\n")
         f.write(json.dumps({**first, "content": first["content"].replace("。", "！")}, ensure_ascii=False) + "\n")
 
+    # 执行单个测试步骤，子进程失败时立即终止整体验证。
     def run(*items):
         subprocess.run([sys.executable, "-X", "utf8", *map(str, items)], check=True)
 
@@ -44,6 +49,7 @@ def main():
     partitions = [{json.loads(line)["id"] for line in (data / f"{s}.jsonl").read_text(encoding="utf-8").splitlines()}
                   for s in ("train", "val", "test")]
     assert all(not partitions[i] & partitions[j] for i in range(3) for j in range(i))
+    # 使用很小的网络和训练步数检查完整流程。
     cfg = {"stage": "pretrain", "seed": 42,
            "model": {"vocab_size": 768, "block_size": 256, "n_layer": 2, "n_head": 4,
                      "n_embd": 64, "dropout": 0.1, "attention": "sdpa"},
@@ -59,6 +65,7 @@ def main():
     run("-m", "minigpt.train", "--config", pc, "--data", data, "--output", root / "resumed",
         "--device", "cpu", "--threads", "1", "--deterministic", "--resume", root / "resumed/last.pt")
     import torch
+    # 比较连续训练与中断恢复的模型、采样随机状态及优化器状态。
     a = torch.load(root / "pretrain/last.pt", map_location="cpu", weights_only=False)
     b = torch.load(root / "resumed/last.pt", map_location="cpu", weights_only=False)
     assert all(torch.equal(a["model"][k], b["model"][k]) for k in a["model"]), "Resume changed weights"
@@ -68,6 +75,7 @@ def main():
         for name, value in state.items():
             other = b["optimizer"]["state"][key][name]
             assert torch.equal(value, other) if isinstance(value, torch.Tensor) else value == other
+    # 修改学习率后尝试续训，检查签名校验能拒绝不同训练计划。
     changed = json.loads(json.dumps(cfg))
     changed["train"]["learning_rate"] *= 2
     bad = root / "changed_config.json"
@@ -76,6 +84,7 @@ def main():
         "--output", str(root / "resumed"), "--resume", str(root / "resumed/last.pt"), "--device", "cpu",
         "--threads", "1", "--deterministic"], text=True, encoding="utf-8", capture_output=True)
     assert rejected.returncode != 0 and "same config" in rejected.stderr
+    # 在同一合成数据上分别检查预训练初始化和随机初始化微调。
     cfg["stage"] = "sft"
     cfg["train"]["max_steps"] = 6
     sc = root / "sft.json"
@@ -84,7 +93,9 @@ def main():
         "--init", root / "pretrain/best.pt", "--device", "cpu", "--threads", "1")
     run("-m", "minigpt.train", "--config", sc, "--data", data, "--output", root / "scratch",
         "--device", "cpu", "--threads", "1")
+    # 检查各组评测选中同一新闻集合，并测试两种生成入口。
     hashes = []
+    # 在同一批合成测试新闻上检查抽取方法和三组模型。
     for name, checkpoint in [("lead", None), ("pretrain", root / "pretrain/best.pt"),
                               ("sft", root / "sft/best.pt"), ("scratch", root / "scratch/best.pt")]:
         command = ["-m", "minigpt.evaluate", "--data", data, "--output", root / f"eval_{name}",
@@ -106,5 +117,6 @@ def main():
     print("PASS: CPU pipeline and exact resume validation. NOT a formal language-quality experiment.")
 
 
+# 直接运行模块时，从命令行入口启动。
 if __name__ == "__main__":
     main()

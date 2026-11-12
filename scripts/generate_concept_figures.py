@@ -1,13 +1,18 @@
-"""Draw the report's original architecture diagrams as PNG and outlined SVG."""
+"""绘制 Transformer、GPT、因果遮罩和标签移位示意图。"""
+# 导入本模块使用的标准库工具。
 import argparse
 from pathlib import Path
 
+# 使用 Matplotlib 绘制模块、连线和文字。
 import matplotlib
+# 设置离屏后端，使脚本可以在无图形界面的环境中运行。
 matplotlib.use('Agg')
+# 导入绘图、中文字体和图形组件。
 import matplotlib.pyplot as plt
 from matplotlib.font_manager import FontProperties
 from matplotlib.patches import FancyArrowPatch, FancyBboxPatch, Circle, Rectangle
 
+# 设置本模块使用的固定参数。
 BLUE = '#216185'
 PALE_BLUE = '#eaf3f8'
 ORANGE = '#a95c27'
@@ -16,11 +21,13 @@ INK = '#20313b'
 GREY = '#65737c'
 
 
+# 使用指定字体在画布上排布文字。
 def label(ax, x, y, text, font, size=10, color=INK, ha='center'):
     return ax.text(x, y, text, fontproperties=font, fontsize=size, color=color,
                    ha=ha, va='center', linespacing=1.3, zorder=5)
 
 
+# 绘制圆角模块框，并在框内排布文字。
 def box(ax, x, y, width, height, text, font, fill=PALE_BLUE, edge=BLUE, size=10):
     ax.add_patch(FancyBboxPatch((x, y), width, height,
         boxstyle='round,pad=0.02,rounding_size=0.08', linewidth=1.1,
@@ -28,17 +35,20 @@ def box(ax, x, y, width, height, text, font, fill=PALE_BLUE, edge=BLUE, size=10)
     label(ax, x + width/2, y + height/2, text, font, size=size)
 
 
+# 绘制带箭头的连接线，表示计算方向。
 def arrow(ax, start, end, color=BLUE, connection='arc3,rad=0'):
     ax.add_patch(FancyArrowPatch(start, end, arrowstyle='-|>', mutation_scale=11,
         linewidth=1.2, color=color, connectionstyle=connection, zorder=3))
 
 
+# 按给定折点绘制连线，连接残差与跨模块支路。
 def line_path(ax, points, color=ORANGE):
     ax.plot([p[0] for p in points], [p[1] for p in points], color=color,
             linewidth=1.15, zorder=3)
     arrow(ax, points[-2], points[-1], color=color)
 
 
+# 建立统一比例的画布并隐藏坐标轴。
 def canvas(size, xlim, ylim):
     fig, ax = plt.subplots(figsize=size)
     ax.set(xlim=xlim, ylim=ylim)
@@ -47,18 +57,22 @@ def canvas(size, xlim, ylim):
     return fig, ax
 
 
+# 保存 PNG 与文字已转路径的 SVG。
 def save(fig, root, name):
     fig.savefig(root / (name + '.png'), dpi=240, facecolor='white')
     fig.savefig(root / (name + '.svg'), facecolor='white')
     plt.close(fig)
 
 
+# 绘制编码器、解码器及交叉注意力的信息流。
 def transformer(root, font):
     fig, ax = canvas((7.1, 4.8), (0, 10), (0, 7.1))
     label(ax, 2.4, 6.83, '编码器', font, size=13, color=BLUE)
     label(ax, 7.5, 6.83, '解码器', font, size=13, color=ORANGE)
+    # 在两侧分别标出源序列和已知目标前缀。
     box(ax, 0.65, 5.95, 3.5, 0.53, '完整输入序列', font)
     box(ax, 5.75, 5.95, 3.5, 0.53, '已知目标前缀', font, fill=PALE_ORANGE, edge=ORANGE)
+    # 绘制嵌入层、编码与解码子层及其连接。
     box(ax, 0.65, 5.04, 3.5, 0.57, '词嵌入 + 位置表示', font)
     box(ax, 5.75, 5.04, 3.5, 0.57, '词嵌入 + 位置表示', font, fill=PALE_ORANGE, edge=ORANGE)
     for x in (2.4, 7.5):
@@ -90,6 +104,7 @@ def transformer(root, font):
     save(fig, root, 'transformer_overview')
 
 
+# 绘制 GPT 整体流程和单个 Pre-LN 块。
 def gpt(root, font):
     fig, ax = canvas((7.1, 5.0), (0, 10), (0, 7.8))
     label(ax, 2.05, 7.48, '本文 GPT 的整体流程', font, size=12, color=BLUE)
@@ -131,12 +146,14 @@ def gpt(root, font):
     save(fig, root, 'gpt_preln')
 
 
+# 绘制下三角可见范围与下一 token 标签移位。
 def mask_shift(root, font):
     fig, ax = canvas((7.1, 3.3), (0, 10), (0, 5.0))
     label(ax, 2.1, 4.7, '因果遮罩的可见位置', font, size=12, color=BLUE)
     label(ax, 7.1, 4.7, '输入和下一 token 标签', font, size=12, color=BLUE)
     tokens = ['BOS', '科技', '展览', '。']
     cell, x0, y0 = 0.68, 1.18, 1.25
+    # 按当前位置与输入位置的关系绘制下三角可见区域。
     for row in range(4):
         y = y0 + (3-row)*cell
         label(ax, 0.90, y+cell/2, tokens[row], font, size=9, ha='right')
@@ -163,6 +180,7 @@ def mask_shift(root, font):
     save(fig, root, 'causal_shift')
 
 
+# 解析命令行参数后，绘制 Transformer、GPT、因果遮罩和标签移位示意图。
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--font', required=True, help='Path to a Chinese font file')
@@ -178,5 +196,6 @@ def main():
     print('Drew three original concept figures in PNG and SVG formats.')
 
 
+# 直接运行模块时，从命令行入口启动。
 if __name__ == '__main__':
     main()

@@ -1,19 +1,24 @@
-"""Finalize report prose only from completed, provenance-checked real experiments."""
+"""根据已完成且通过校验的实验记录填写本地报告。"""
+# 导入本模块使用的标准库工具。
 from pathlib import Path
 import re
 from collections import Counter
 
+# 复用项目内的数据、模型或实验工具。
 from minigpt.common import jsonl, read_json, write_json
 from scripts.export_report import validate_inputs, tex
 
 
+# 依据保存的真实指标填写报告正文和结果摘要。
 def finalize(runs, data, report):
     runs, report = Path(runs), Path(report)
+    # 填写正文前先复用完整的实验来源校验。
     manifest, infos, statuses, evaluations, continuation = validate_inputs(runs, data)
     generated = report / "generated"
     generated.mkdir(parents=True, exist_ok=True)
     if not (report / "main.tex").exists():
         return
+    # 读取初始与最佳验证结果，并从已保存指标计算各组对照。
     pre_vals = [r for r in jsonl(runs / "pretrain/metrics.jsonl") if r["event"] == "val"]
     first, best = pre_vals[0], min(pre_vals, key=lambda r:r["loss"])
     scores = {name: row["metrics"] for name,row in evaluations.items()}
@@ -21,12 +26,14 @@ def finalize(runs, data, report):
     lead_l = scores["lead"]["rougeL"]*100
     scratch_l = scores["scratch"]["rougeL"]*100
     raw_l = scores["pretrain"]["rougeL"]*100
+    # 使用实际完成步数和实际得分填入结果摘要。
     abstract = (f"本地实际完成 {statuses['pretrain']['step']} 步预训练及两组各 {statuses['sft']['step']} 步监督微调。"
                 f"固定验证窗口交叉熵从 {first['loss']:.4f} 降至最佳 {best['loss']:.4f}。"
                 f"在 {evaluations['sft']['n']} 条固定测试新闻上，预训练后微调的字符级 ROUGE-L 为 {main_l:.2f}，"
                 f"首句抽取基线为 {lead_l:.2f}，随机初始化微调为 {scratch_l:.2f}。"
                 "这些结果限定于本次数据、训练预算与单个随机种子，不代表通用中文任务表现。")
     (generated / "abstract_results.tex").write_text(abstract+"\n",encoding="utf-8")
+    # 以百分制分数计算两个已完成方法之间的 ROUGE-L 差值。
     def difference(a,b):
         delta=a-b
         return (f"高 {delta:.2f}" if delta>0 else f"低 {-delta:.2f}" if delta<0 else "相同，为 0.00") + " 个百分点"

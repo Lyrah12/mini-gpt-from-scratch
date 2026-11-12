@@ -1,4 +1,5 @@
-"""Read-only audit of frozen homework experiments; write a separate JSON artifact."""
+"""核对数据、训练记录和预测结果，将检查结果另存为 JSON。"""
+# 导入本模块使用的标准库工具。
 import argparse
 from collections import Counter
 import hashlib
@@ -6,9 +7,11 @@ import json
 from pathlib import Path
 import sys
 
+# 使用 NumPy 核对数据数组并统计长度分布。
 import numpy as np
 
 
+# 逐项核对保存的数据、训练记录和生成指标。
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument('--project', default='.')
@@ -29,6 +32,7 @@ def main():
               'source_sha256': source_fingerprint(), 'checks': {}, 'data': {},
               'training': {}, 'evaluations': {}, 'validation_examples': {}}
     checks = report['checks']
+    # 先核对现有产物的文件摘要，再重建样本和分词结果。
     checks['artifact_sha256'] = {name: sha256(data / name) == digest
                                 for name, digest in manifest['files'].items()}
     checks['tokenizer_sha256'] = sha256(data / 'tokenizer.json') == manifest['tokenizer_sha256']
@@ -37,9 +41,11 @@ def main():
     report['body_token_budget'] = budget
     val_by_id = {}
 
+    # 用最小值、中位数、九成分位数和最大值概括长度分布。
     def summary(values):
         return {k: float(v) for k, v in zip(('min', 'p50', 'p90', 'max'), np.percentile(values, [0, 50, 90, 100]))}
 
+    # 逐分区核对样本标识、token 往返和准备好的微调数组。
     for split in ('train', 'val', 'test'):
         rows = [json.loads(line) for line in (data / f'{split}.jsonl').read_text(encoding='utf8').splitlines()]
         if split == 'val':
@@ -50,6 +56,7 @@ def main():
         arrays = (np.load(data / f'sft_{split}_ids.npy', mmap_mode='r'),
                   np.load(data / f'sft_{split}_labels.npy', mmap_mode='r')) if split != 'test' else None
         stream_hash = hashlib.sha256()
+        # 逐条检查编码往返、长度截断、特殊 token 和存储数组。
         for i, row in enumerate(rows):
             body_ids = tok.encode(row['content']).ids
             title_ids = tok.encode(row['title']).ids
@@ -82,9 +89,11 @@ def main():
             'reference_character_recall_full_mean': float(np.mean(full_recall)),
             'reference_character_recall_note': 'Lexical diagnostic only; not semantic evidence coverage.'}
         print(f'Checked {split}: {len(rows)} records', flush=True)
+    # 比较分区之间的文档 ID、前缀组和规范化正文是否相交。
     checks['cross_split_overlap'] = {
         a + '_' + b: dict(zip(('id', 'lead_group', 'canonical_body'), (len(x & y) for x, y in zip(sets[a], sets[b]))))
         for a, b in (('train', 'val'), ('train', 'test'), ('val', 'test'))}
+    # 汇总真实训练步数和损失，并复查采样覆盖情况。
     for stage in ('pretrain', 'sft', 'scratch'):
         run = json.loads((runs / stage / 'run.json').read_text(encoding='utf8'))
         status = json.loads((runs / stage / 'status.json').read_text(encoding='utf8'))
@@ -107,8 +116,10 @@ def main():
             'sft_training_unique_example_coverage_reconstructed': coverage,
             'sft_validation_sampled_examples': tc['batch_size'] * tc['eval_batches'] if stage != 'pretrain' else None,
             'status': status}
+    # 重算逐条评分，并筛出重复、数字和解码字符异常的样本。
     for split in ('val', 'test'):
         selection_ids = []
+        # 对每种方法重新计算逐条分数，并检查保存的汇总是否一致。
         for method in ('lead', 'pretrain', 'sft', 'scratch'):
             folder = runs / f'eval_{split}_{method}'
             rows = [json.loads(line) for line in (folder / 'predictions.jsonl').read_text(encoding='utf8').splitlines()]
@@ -116,6 +127,7 @@ def main():
             scores = [rouge(r['prediction'], r['reference']) for r in rows]
             means = {k: float(np.mean([s[k] for s in scores])) for k in ('rouge1', 'rouge2', 'rougeL')}
             repeated, numeric, replacement, raw_repeated = [], [], [], []
+            # 从生成文本中分别筛出重复片段、未匹配数字和替换字符。
             for r in rows:
                 p = ''.join(characters(r['prediction']))
                 counts = Counter(p[i:i+4] for i in range(len(p)-3))
@@ -139,6 +151,7 @@ def main():
                 'normalized_fourgram_at_least_three_times_n': len(repeated),
                 'raw_fourgram_at_least_three_times_n': len(raw_repeated), 'numeric_not_in_full_body_n': len(numeric),
                 'unicode_replacement_n': len(replacement), 'heuristic_note': 'Flags are not factual error labels.'}
+            # 以固定验证样例和筛查出的样例组成待人工复核记录。
             if split == 'val' and method == 'sft':
                 chosen = list(dict.fromkeys(ids[:8] + repeated[:4] + numeric[:4]))
                 byid = {r['id']: r for r in rows}
@@ -156,5 +169,6 @@ def main():
     print('Audit artifact:', out, flush=True)
 
 
+# 直接运行模块时，从命令行入口启动。
 if __name__ == '__main__':
     main()

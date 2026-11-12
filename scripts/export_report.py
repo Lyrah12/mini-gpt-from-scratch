@@ -1,12 +1,15 @@
-"""Export completed real experiments into Overleaf assets; never invent missing results."""
+"""校验已完成实验的来源，导出表格、曲线和续写样例。"""
+# 导入本模块使用的标准库工具。
 import argparse
 import math
 import unicodedata
 from pathlib import Path
 
+# 复用项目内的数据、模型或实验工具。
 from minigpt.common import jsonl, read_json, sha256, write_json
 
 
+# 转义特殊字符并处理控制字符，使生成文本可用于 LaTeX。
 def tex(text):
     table = {"\\": r"\textbackslash{}", "&": r"\&", "%": r"\%", "$": r"\$", "#": r"\#",
              "_": r"\_", "{": r"\{", "}": r"\}", "~": r"\textasciitilde{}", "^": r"\textasciicircum{}"}
@@ -15,6 +18,7 @@ def tex(text):
     return "".join(table.get(c, " " if c in "\n\t" else c) for c in text)
 
 
+# 核对数据、训练完成状态、初始化来源和评测样本的一致性。
 def validate_inputs(root, data):
     root, data = Path(root), Path(data)
     manifest = read_json(data / "manifest.json")
@@ -25,6 +29,7 @@ def validate_inputs(root, data):
         if sha256(data / f"{split}.jsonl") != manifest["files"][f"{split}.jsonl"]:
             raise ValueError(f"Changed partition: {split}")
     infos, statuses, evaluations = {}, {}, {}
+    # 核对各训练阶段的完成状态、数据版本和初始化关系。
     for name in ("pretrain", "sft", "scratch"):
         infos[name] = read_json(root / name / "run.json")
         statuses[name] = read_json(root / name / "status.json")
@@ -38,6 +43,7 @@ def validate_inputs(root, data):
         raise ValueError("Scratch control must start from random weights")
     if infos["scratch"]["config"] != infos["sft"]["config"]:
         raise ValueError("Controlled SFT comparison must use the same config except initialization")
+    # 检查最终测试使用的权重、新闻集合和指标定义。
     for name in ("lead", "pretrain", "sft", "scratch"):
         result = read_json(root / f"eval_test_{name}/metrics.json")
         evaluations[name] = result
@@ -49,6 +55,7 @@ def validate_inputs(root, data):
         raise ValueError("Evaluations used different examples")
     if len({r["metric"] for r in evaluations.values()}) != 1:
         raise ValueError("Incompatible scoring conventions")
+    # 续写对照也要与相同数据和预训练检查点对应。
     continuation = read_json(root / "continuations.json")
     if continuation["data_manifest_sha256"] != manifest_hash:
         raise ValueError("Continuation data mismatch")
@@ -58,6 +65,7 @@ def validate_inputs(root, data):
     return manifest, infos, statuses, evaluations, continuation
 
 
+# 从通过校验的实验记录生成图表、表格和汇总文件。
 def export(root, data, output):
     root, data, out = Path(root), Path(data), Path(output)
     manifest, infos, statuses, evaluations, continuation = validate_inputs(root, data)
@@ -65,8 +73,10 @@ def export(root, data, output):
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
+    # 读取真实训练日志，分别绘制预训练和两组微调损失。
     fig, axes = plt.subplots(1, 3, figsize=(12, 3.4), constrained_layout=True)
     logs = {}
+    # 三组实验分别绘制训练与验证损失，使用各自的日志数据。
     for ax, name, title in zip(axes, ("pretrain", "sft", "scratch"),
                                 ("Pretraining", "SFT after pretraining", "SFT from random initialization")):
         rows = list(jsonl(root / name / "metrics.jsonl"))
@@ -79,6 +89,7 @@ def export(root, data, output):
         ax.legend(fontsize=7)
     fig.savefig(out / "loss_curves.png", dpi=180)
     plt.close(fig)
+    # 从运行记录提取实际模型与环境信息，生成对应表格。
     mc = infos["pretrain"]["actual_model_config"]
     lines = [r"% Generated from validated real experiment artifacts; do not edit numeric results manually.",
              r"\subsection{实际数据、环境与模型}",
@@ -140,6 +151,7 @@ def export(root, data, output):
     print(f"Exported real experiment assets to {out}; review analysis and compile main.tex in Overleaf.")
 
 
+# 解析命令行参数后，校验已完成实验的来源，导出表格、曲线和续写样例。
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--runs", default="runs/cloud")
@@ -153,5 +165,6 @@ def main():
         finalize(args.runs, args.data, report_dir)
 
 
+# 直接运行模块时，从命令行入口启动。
 if __name__ == "__main__":
     main()

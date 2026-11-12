@@ -1,9 +1,11 @@
-"""Build the coursework report's result tables, examples and plots from saved runs."""
+"""读取已保存的实验记录，生成报告表格、样例和曲线。"""
+# 导入本模块使用的标准库工具。
 import argparse
 from pathlib import Path
 import sys
 
 
+# 将表头和各行数据组织为 LaTeX 表格。
 def table(caption, label, columns, headings, rows):
     lines = [r'\begin{table}[H]', r'\centering\small',
              r'\caption{' + caption + r'}\label{' + label + '}',
@@ -14,9 +16,12 @@ def table(caption, label, columns, headings, rows):
     return '\n'.join(lines)
 
 
+# 绘制训练采样损失与固定验证损失，并标注末次结果。
 def plot_stages(logs, names, titles, destination, size):
+    # 采用离屏绘图，导出可直接插入报告的损失曲线。
     import matplotlib.pyplot as plt
     figure, axes = plt.subplots(1, len(names), figsize=size, squeeze=False)
+    # 每个子图分别读取对应阶段的训练记录与固定验证记录。
     for axis, name, title in zip(axes.flat, names, titles):
         training = [row for row in logs[name] if row['event'] == 'train']
         validation = [row for row in logs[name] if row['event'] == 'val']
@@ -36,14 +41,16 @@ def plot_stages(logs, names, titles, destination, size):
     plt.close(figure)
 
 
+# 校验原始记录后生成报告使用的实验表格、样例和曲线。
 def build(project, output):
     project, output = Path(project).resolve(), Path(output).resolve()
     sys.path.insert(0, str(project))
     from minigpt.common import jsonl, read_json, sha256, write_json
     from scripts.export_report import tex as escape_tex, validate_inputs
 
+    # 转义 LaTeX 特殊字符，并指定“牠”的补充字形。
     def tex(text):
-        # Force the supplied glyph for a character rendered as a box by the report font.
+        # 为“牠”指定随报告提供的字形，确保中文字体能够显示该字。
         return escape_tex(text).replace('牠', r'\ReportAnimalPronoun{}')
 
     original = project / 'runs/local_4060'
@@ -58,6 +65,7 @@ def build(project, output):
         raise ValueError('The two SFT budgets differ')
     if refined['training_run']['init_checkpoint_sha256'] != sha256(original / 'pretrain/best.pt'):
         raise ValueError('Refinement initialization has changed')
+    # 核对不同方案使用的文档集合、预测文件与验证集选择结果。
     selection_hashes = {entry['selection_hash'] for entry in initial.values()}
     for name, entry in refined['test'].items():
         folder = refinement / ('test_lead32_lead' if name == 'lead32_lead' else 'test_' + name)
@@ -69,6 +77,7 @@ def build(project, output):
     if len(selection_hashes) != 1:
         raise ValueError('The comparisons use different test documents')
 
+    # 统一保存报告使用的表格、曲线与来源记录。
     generated = output / 'generated'
     generated.mkdir(parents=True, exist_ok=True)
     paths = {'pretrain': original / 'pretrain', 'sft': original / 'sft',
@@ -79,6 +88,7 @@ def build(project, output):
     first = next(row for row in logs['pretrain'] if row['event'] == 'val')
     test = refined['test']
 
+    # 从预训练日志读取起始和最佳损失，并加入实际续写样例。
     pretrain = [f"预训练固定验证交叉熵由{first['loss']:.4f}降至{best['pretrain']['loss']:.4f}，"
         f"困惑度由{first['ppl']:.2f}降至{best['pretrain']['ppl']:.2f}。最佳检查点位于第{best['pretrain']['step']}步，"
         f"累计处理98,304,000个输入token，训练迭代用时{statuses['pretrain']['train_seconds']/60:.1f}分钟。"
@@ -108,6 +118,7 @@ def build(project, output):
         '但模型对提示主题和时间关系的约束仍较弱。本次验证损失由固定窗口估计，生成样例进一步展示了其内容组织能力的边界。']
     (generated / 'style_pretrain.tex').write_text('\n\n'.join(pretrain) + '\n', encoding='utf8')
 
+    # 从初始测试记录中提取四组对照的评分，生成对应表格。
     initial_rows = []
     for name, label in [('lead', '首句前32字符'), ('pretrain', '仅预训练'),
                         ('scratch', '随机初始化微调'), ('sft', '预训练后微调')]:
@@ -130,10 +141,12 @@ def build(project, output):
         '因此损失与生成评测共同支持预训练和任务监督分别发挥作用的解释。']
     (generated / 'style_sft.tex').write_text('\n\n'.join(sft) + '\n', encoding='utf8')
 
+    # 将原权重的两种输入与重新微调的摘要输入并列比较。
     groups = [('original_sft_text', '原微调权重', '正文'),
               ('original_sft_lead', '原微调权重', '导语加正文'),
               ('refined_sft_lead', '重新微调权重', '导语加正文')]
     modes = ('greedy', 'penalty_1p1', 'no_repeat_3')
+    # 按同一模型与输入展示各候选解码在验证集的得分。
     validation_rows = [[model + '，' + source] + [f"{100*refined['validation'][name+'/'+mode]['metrics']['rougeL']:.2f}" for mode in modes]
                        for name, model, source in groups]
     refinement_lines = [r'三组验证结果见表\ref{tab:validation}，均由重复惩罚1.1获得最高ROUGE-L，因此采用该设置进入测试。',
@@ -144,6 +157,7 @@ def build(project, output):
     test_rows.append(['首句抽取', '导语加正文'] + [f"{100*test['lead32_lead']['metrics'][metric]:.2f}" for metric in ('rouge1','rouge2','rougeL')])
     refinement_lines.append(table('输入与微调改进结果', 'tab:refinement', 'Y l r r r',
         '模型 & 新闻输入 & ROUGE-1 & ROUGE-2 & ROUGE-L', test_rows))
+    # 用相同评分单位计算解码、摘要输入和重新微调带来的分数变化。
     initial_l = 100*initial['sft']['metrics']['rougeL']
     decoded_l = 100*test['original_sft_text']['metrics']['rougeL']
     lead_l = 100*test['original_sft_lead']['metrics']['rougeL']
@@ -160,6 +174,7 @@ def build(project, output):
         r'\caption{改进微调损失曲线}\label{fig:refinement}', r'\end{figure}']
     (generated / 'style_refinement.tex').write_text('\n\n'.join(refinement_lines) + '\n', encoding='utf8')
 
+    # 按同一文档 ID 对齐初始输出和改进后的输出。
     original_predictions = {row['id']: row for row in jsonl(original / 'eval_test_sft/predictions.jsonl')}
     final_predictions = list(jsonl(refinement / 'test_refined_sft_lead/predictions.jsonl'))[:4]
     example_rows = [[tex(row['reference']), tex(original_predictions[row['id']]['prediction']), tex(row['prediction'])]
@@ -169,6 +184,7 @@ def build(project, output):
               '参考标题 & 初始方案 & 最终方案', example_rows),
         '样例中有些重复减少，上海自贸区新闻的输出也更贴近事件主题，但动物特工样例仍存在语义不清的问题。'
         '为进一步观察数字和事件关系，从按文档ID排序的前8条验证样例中取以下两例。']
+    # 错误样例取自验证集所选解码方法，并使用固定文档顺序。
     selected_mode = refined['selection']['selection']['refined_sft_lead']['mode']
     validation_predictions = list(jsonl(refinement / ('val_refined_sft_lead_' + selected_mode) / 'predictions.jsonl'))[:8]
     for prefix, explanation in [('01265c776a59', '导语明确给出12名嫌疑犯，输出仍写成7名，具体人数被错误生成。'),
@@ -183,8 +199,10 @@ def build(project, output):
         '这些规则用于定位待复核样本，事实判断还需检查上下文与表达转换。上述案例表明，输入补全和重复约束之后，数字与事件关系仍可能出错。')
     (generated / 'style_examples.tex').write_text('\n\n'.join(examples) + '\n', encoding='utf8')
 
+    # 采用离屏绘图，导出可直接插入报告的损失曲线。
     import matplotlib
     matplotlib.use('Agg')
+    # 采用离屏绘图，导出可直接插入报告的损失曲线。
     import matplotlib.pyplot as plt
     plt.rcParams.update({'font.size': 9, 'axes.titlesize': 10, 'axes.labelsize': 9,
                          'axes.spines.top': False, 'axes.spines.right': False})
@@ -203,6 +221,7 @@ def build(project, output):
     print('Built report results and figures from the completed experiments.')
 
 
+# 解析命令行参数后，读取已保存的实验记录，生成报告表格、样例和曲线。
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--project', default='.')
@@ -211,5 +230,6 @@ def main():
     build(args.project, args.output)
 
 
+# 直接运行模块时，从命令行入口启动。
 if __name__ == '__main__':
     main()

@@ -1,9 +1,13 @@
+"""检查官方分区归属与训练集词表学习范围。"""
+# 导入本模块使用的标准库工具。
 import json
 from pathlib import Path
+# 复用项目内的数据、模型或实验工具。
 from minigpt import prepare as module
 from minigpt.common import jsonl
 
 
+# 检查官方分区被保留，词表学习只读取训练文本。
 def test_official_splits_preserved_and_tokenizer_sees_only_train(tmp_path, monkeypatch):
     raw=tmp_path/"raw.jsonl"
     records=[]
@@ -14,9 +18,11 @@ def test_official_splits_preserved_and_tokenizer_sees_only_train(tmp_path, monke
     records.append({**records[0],"_split":"test"})
     raw.write_text("".join(json.dumps(r,ensure_ascii=False)+"\n" for r in records),encoding="utf-8")
     captured=[]; original=module.train_tokenizer
+    # 记录分词器实际接收到的文本，供后续断言检查。
     def observe(texts,*args,**kwargs):
         texts=list(texts);captured.extend(texts)
         return original(texts,*args,**kwargs)
+    # 替换训练接口以观察文本来源，再执行保留官方分区的数据准备。
     monkeypatch.setattr(module,"train_tokenizer",observe)
     out=tmp_path/"prepared"
     manifest=module.prepare([str(raw)],out,max_records=500,vocab_size=512,block_size=256,preserve_splits=True)

@@ -1,12 +1,15 @@
-"""Append measured refinement results to the report; never compile a PDF."""
+"""将已完成的摘要输入实验写入本地报告和实验记录。"""
+# 导入本模块使用的标准库工具。
 import argparse
 from pathlib import Path
 import shutil
 
+# 复用项目内的数据、模型或实验工具。
 from minigpt.common import jsonl, read_json, sha256, write_json
 from scripts.export_report import tex
 
 
+# 核对新增实验与初始实验的关系，导出实测结果和示例。
 def export(root, report='report'):
     root, report = Path(root), Path(report)
     summary = read_json(root / 'summary.json')
@@ -15,12 +18,14 @@ def export(root, report='report'):
         raise ValueError('Refinement training incomplete')
     if summary['training_run']['init_checkpoint_sha256'] != sha256('runs/local_4060/pretrain/best.pt'):
         raise ValueError('Unexpected pretraining initialization')
+    # 核对预测文件摘要及其解码方式与冻结的验证选择一致。
     for name, result in summary['test'].items():
         folder = root / ('test_lead32_lead' if name == 'lead32_lead' else 'test_' + name)
         if sha256(folder / 'predictions.jsonl') != result['predictions_sha256']:
             raise ValueError('Test predictions changed: ' + name)
         if name != 'lead32_lead' and result['identity']['mode'] != selection[name]['mode']:
             raise ValueError('Test did not use frozen validation selection')
+    # 备份原始报告并记录身份文件摘要，便于核对导出范围。
     metadata_hash = sha256(report / 'metadata.tex')
     backup = root / 'report_before_refinement'
     backup.mkdir(exist_ok=True)
@@ -32,6 +37,7 @@ def export(root, report='report'):
     labels = {'original_sft_text': '原微调／仅正文', 'original_sft_lead': '原微调／导语加正文',
               'refined_sft_lead': '重新微调／导语加正文'}
     mode_labels = {'greedy': '贪心', 'penalty_1p1': '重复惩罚1.1', 'no_repeat_3': '禁重复3-gram'}
+    # 用已保存的验证和测试指标组成补充实验内容。
     lines = [r'\subsection{检查后补充实验：输入信息与生成重复}',
         '初始实验完成后，逐条核对编码、损失遮罩与评测结果，未发现本轮检查范围内的致命实现错误。'
         '回查原始 XL-Sum 发现，summary 字段中有时包含 text 字段未保留的新闻导语；例如拘捕人数只在导语中出现。'
@@ -56,6 +62,7 @@ def export(root, report='report'):
         '也不根据本轮测试结果反过来改变配置。',
         r'\begin{center}\small\begin{tabular}{lrrr}\toprule',
         r'固定500条测试新闻 & ROUGE-1 & ROUGE-2 & ROUGE-L \\ \midrule']
+    # 并列读取原方案与新增方案的实际测试评分。
     table = [('初始首句抽取／正文', summary['original_test_lead32']['metrics']),
              ('初始微调／正文／贪心', summary['original_test_sft_greedy']['metrics'])]
     table += [(labels[name] + '／' + mode_labels[selection[name]['mode']], tests[name]['metrics']) for name in labels]
@@ -72,9 +79,11 @@ def export(root, report='report'):
     lines.append(f"重新微调的500条输出中，空输出{final['empty_n']}条，原文四字符片段至少重复三次的提示"
                  f"{final['raw_repetition_flags']}条，数字未在其完整输入中直接出现的提示{final['numeric_flags']}条。"
                  '后两项不是事实错误率；加入导语也改变了数字筛查的输入范围，不能直接据此宣称事实性改善。')
+    # 从固定验证样本中选取实际输入和输出，用于具体错误分析。
     validation_rows = list(jsonl(root / ('val_refined_sft_lead_' + selection['refined_sft_lead']['mode']) / 'predictions.jsonl'))[:8]
     lines.append('另外，对固定验证子集按文档ID排序的前8条作人工复核，可见有些输出更贴近输入，但数字和事件关系仍可能错误。'
         '例如以下案例位于这8条之内；它们用于解释失败机制，不构成人工事实准确率，也未用于改变已冻结的生成设置。')
+    # 按预先声明的文档前缀提取实际错误样例及对应说明。
     for prefix, diagnosis in (
         ('01265c776a59', '原始导语明确写了扣押12名嫌疑犯，输出仍写7名，说明补全信息并不能保证数字复制正确。'),
         ('03b663645558', '输出比原来关于央行宣布措施的说法更接近当前导语，抓住了经济状况恶化。'),
@@ -92,6 +101,7 @@ def export(root, report='report'):
             r'\textbf{补充实验输出：}' + tex(row['prediction']) + r'\par']
     lines += ['该实验只覆盖一个随机种子、一组固定训练预算和少量解码候选。输入完整性和去重复约束都不能保证人物关系、数字或时间关系正确。'
         '若用户仅提供正文而没有导语，不能凭空补造导语，也不能将本次导语加正文评测的指标直接承诺给该输入条件。']
+    # 将补充结果写入独立文件，并把引用接入本地报告。
     generated = report / 'generated'
     (generated / 'refinement.tex').write_text('\n\n'.join(lines) + '\n', encoding='utf8')
     write_json(generated / 'refinement_summary.json', summary)
@@ -124,6 +134,7 @@ def export(root, report='report'):
         status += '\n2026-11-04补充实验已完成，见generated/refinement.tex和refinement_summary.json；初始结果仍保留。输入变化与验证选参已明确说明。\n'
         (report / 'FINAL_STATUS.md').write_text(status, encoding='utf8')
     assert sha256(report / 'metadata.tex') == metadata_hash
+    # 将实验说明另存于运行目录，便于与训练产物一起查看。
     doc = ['# 有限优化实验（2026-11-04）', '',
            '本轮新增一组同预算微调，原实验和权重保留。输入从原text字段改为原summary导语加text，目标仍为title；这是输入条件变化，不能把全部提升称作算法收益。', '',
            '| 模型／输入 | 验证集选择 | 验证ROUGE-L | 测试ROUGE-L | 测试重复提示 |',
@@ -147,6 +158,7 @@ def export(root, report='report'):
     print('Refinement results exported; no PDF compiled.', flush=True)
 
 
+# 解析命令行参数后，将已完成的摘要输入实验写入本地报告和实验记录。
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument('--runs', default='runs/refinement_20261104')
@@ -155,5 +167,6 @@ def main():
     export(a.runs, a.report)
 
 
+# 直接运行模块时，从命令行入口启动。
 if __name__ == '__main__':
     main()

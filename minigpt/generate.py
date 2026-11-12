@@ -1,13 +1,17 @@
-"""Generate Chinese continuations or news titles from a trusted local checkpoint."""
+"""加载本地检查点，执行中文续写或新闻标题生成。"""
+# 导入本模块使用的标准库工具。
 import argparse
 
+# 使用 PyTorch 构造输入张量和执行生成。
 import torch
 
+# 复用项目内的数据、模型或实验工具。
 from .common import seed_all
 from .evaluate import load_model
 from .tokenizer import BOS, EOS, PAD, TITLE_TOKENS, load_tokenizer, title_prompt
 
 
+# 解析输入文本和任务参数，加载本地模型后生成结果。
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--checkpoint", required=True)
@@ -24,6 +28,7 @@ def main():
     device = ("cuda" if torch.cuda.is_available() else "cpu") if args.device == "auto" else args.device
     model, _ = load_model(args.checkpoint, args.tokenizer, device)
     tok = load_tokenizer(args.tokenizer)
+    # 标题使用统一提示和贪心解码，续写采用用户指定的采样温度。
     if args.task == "title":
         ids = title_prompt(tok, args.text, model.config.block_size)
         count, temperature = TITLE_TOKENS, 0.0
@@ -34,9 +39,11 @@ def main():
         ids = ids[:model.config.block_size - args.max_new_tokens]
         count, temperature = args.max_new_tokens, args.temperature
     x = torch.tensor([ids], dtype=torch.long, device=device)
+    # 屏蔽 PAD 和 BOS，解码时只输出新生成的部分。
     y = model.generate(x, count, temperature, eos_id=EOS, forbidden_ids=(PAD, BOS))
     print(tok.decode(y[0, len(ids):].tolist(), skip_special_tokens=True))
 
 
+# 直接运行模块时，从命令行入口启动。
 if __name__ == "__main__":
     main()

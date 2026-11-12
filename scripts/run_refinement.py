@@ -1,4 +1,5 @@
-"""One bounded SFT comparison; select all decoding settings on validation only."""
+"""执行摘要输入的微调对照，并按验证得分选择解码设置。"""
+# 导入本模块使用的标准库工具。
 import argparse
 import ctypes
 from datetime import datetime, timezone
@@ -8,12 +9,14 @@ from pathlib import Path
 import subprocess
 import sys
 
+# 复用项目内的数据、模型或实验工具。
 from minigpt.common import read_json, sha256, write_json
 from scripts.evaluate_refinement import evaluate
 from scripts.prepare_refinement import prepare
 from scripts.title_decoding import MODES
 
 
+# 准备摘要输入，执行微调并用验证集选择解码方法。
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument('--runs', default='runs/refinement_20261104')
@@ -28,6 +31,7 @@ def main():
         json.dump({'pid': os.getpid()}, stream)
     state = {'pid': os.getpid(), 'complete': False}
 
+    # 保存补充实验当前阶段，并输出便于查看的状态记录。
     def update(phase, **extra):
         state.update(phase=phase, updated_utc=datetime.now(timezone.utc).isoformat(), **extra)
         write_json(root / 'pipeline.json', state)
@@ -35,7 +39,9 @@ def main():
 
     if os.name == 'nt':
         ctypes.windll.kernel32.SetThreadExecutionState(0x80000001)
+    # 整个补充实验共用运行锁，结束或报错时都执行清理。
     try:
+        # 先保存候选方案与选择规则，后续运行按相同规则复查。
         policy = {'seed': 42, 'validation_n': 200, 'test_n': 500, 'modes': MODES,
             'selection': 'per model/input: maximum validation ROUGE-L; ties: fewer raw repetition flags, then declared mode order',
             'input_cases': ['original_sft_text', 'original_sft_lead', 'refined_sft_lead'],
@@ -56,16 +62,19 @@ def main():
                  'original_sft_lead': (a.data, original / 'sft/best.pt'),
                  'refined_sft_lead': (a.data, root / 'sft/best.pt')}
         validation = {}
+        # 先比较原微调权重在两种输入上的解码结果。
         for name in ('original_sft_text', 'original_sft_lead'):
             for mode in MODES:
                 update('validation_' + name + '_' + mode)
                 validation[name + '/' + mode] = evaluate(*[cases[name][0], root / f'val_{name}_{mode}', cases[name][1]], mode=mode)
+        # 检查封装后的贪心解码是否复现初始验证结果。
         original_val = read_json(original / 'eval_val_sft/metrics.json')
         replay = validation['original_sft_text/greedy']
         if replay['identity']['selection_hash'] != original_val['selection_hash'] or any(abs(replay['metrics'][k] - original_val['metrics'][k]) > 1e-12 for k in replay['metrics']):
             raise ValueError('Greedy wrapper did not reproduce original validation result')
         update('sft_lead_1500')
         output = root / 'sft'
+        # 新增微调优先续训，训练已完成时继续后续评测。
         if not (output / 'status.json').exists() or not read_json(output / 'status.json')['complete']:
             cmd = [sys.executable, '-B', '-X', 'utf8', '-u', '-m', 'minigpt.train', '--config', str(root / 'sft_config.json'),
                 '--data', a.data, '--output', str(output), '--device', 'cuda', '--stop-file', str(root / 'pause.request')]
@@ -79,6 +88,7 @@ def main():
             update('validation_refined_' + mode)
             validation['refined_sft_lead/' + mode] = evaluate(a.data, root / f'val_refined_sft_lead_{mode}', output / 'best.pt', mode=mode)
         validation['lead32_lead'] = evaluate(a.data, root / 'val_lead32_lead')
+        # 只根据验证 ROUGE-L 选择解码，平分时按重复数和声明顺序比较。
         selection = {}
         for name in cases:
             mode = min(MODES, key=lambda mode: (-validation[name + '/' + mode]['metrics']['rougeL'],
@@ -93,6 +103,7 @@ def main():
             decision = saved
         else:
             write_json(root / 'selection.json', decision)
+        # 冻结验证选择后，才对同一批测试新闻评测所选方案。
         tests = {}
         for name, (data, checkpoint) in cases.items():
             update('test_' + name)
@@ -100,12 +111,14 @@ def main():
         tests['lead32_lead'] = evaluate(a.data, root / 'test_lead32_lead', split='test', limit=500)
         if len({v['identity']['selection_hash'] for v in tests.values()}) != 1 or len({v['identity']['reference_hash'] for v in tests.values()}) != 1:
             raise ValueError('Test comparison changed documents or reference titles')
+        # 汇总数据来源、训练状态、验证选择和各组测试指标。
         summary = {'policy': policy, 'selection': decision, 'validation': validation, 'test': tests,
             'data': read_json(Path(a.data) / 'manifest.json'), 'training_status': read_json(output / 'status.json'),
             'training_run': read_json(output / 'run.json'),
             'original_test_sft_greedy': read_json(original / 'eval_test_sft/metrics.json'),
             'original_test_lead32': read_json(original / 'eval_test_lead/metrics.json')}
         write_json(root / 'summary.json', summary)
+        # 本地有报告源文件时追加导出，源码发布版本直接保存实验结果。
         if Path('report/main.tex').is_file():
             update('export_refinement')
             from scripts.export_refinement import export
@@ -120,5 +133,6 @@ def main():
             ctypes.windll.kernel32.SetThreadExecutionState(0x80000000)
 
 
+# 直接运行模块时，从命令行入口启动。
 if __name__ == '__main__':
     main()

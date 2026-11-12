@@ -1,1 +1,1 @@
-"""A small Chinese decoder-only language model, built with PyTorch primitives."""
+"""使用 PyTorch 基础组件实现的小型中文自回归语言模型。"""
